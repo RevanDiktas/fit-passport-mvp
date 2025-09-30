@@ -1,0 +1,23 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width,initial-scale=1"/>
+    <title>Fit Passport MVP</title>
+    <style>
+      body { margin:0; background:#111; color:#eee; font-family: system-ui; }
+      #ui { position:fixed; left:12px; top:12px; z-index:10; }
+      select, button { font-size:14px; padding:6px; margin-right:8px; }
+    </style>
+  </head>
+  <body>
+    <div id="ui">
+      <label>Size: </label>
+      <select id="sizeSelect"></select>
+      <button id="recommendBtn">Auto Recommend</button>
+      <span id="info"></span>
+    </div>
+    <canvas id="c"></canvas>
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

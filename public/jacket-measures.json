@@ -1,0 +1,9 @@
+{
+  "styleId": "jacket01",
+  "sizes": {
+    "S": { "chest_cm": 92, "waist_cm": 78, "hip_cm": 96 },
+    "M": { "chest_cm": 100, "waist_cm": 88, "hip_cm": 102 },
+    "L": { "chest_cm": 104, "waist_cm": 93, "hip_cm": 105 },
+    "XL": { "chest_cm": 108, "waist_cm": 98, "hip_cm": 108 }
+  }
+}
