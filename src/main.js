@@ -1,378 +1,281 @@
+// src/main.js
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { DRACOLoader } from 'three/examples/jsm/loaders/DRACOLoader.js';
+import { createTShirt } from './garments/tshirt.js';
+import { loadTextureFromURL } from './utils/texture.js';
 
-/* ===================== TWEAKS / TOGGLES ===================== */
-const AVATAR_HEIGHT_M = 1.8;
-const AVATAR_ROT_Y = 0;
-const JACKET_ROT_Y = 4.7;       // confirmed good for your GLB
-const JACKET_Y_NUDGE = 0.05;    // collar line from neck (meters)
-const TORSO_FRACTION = 0.56;    // jacket bottom ~ hips
-const SHOULDER_EASE = 1.08;     // slightly wider than shoulders
-const DEFAULT_EASE_CM = 4;      // extra ease for visual comfort (cm)
-
-const DEBUG_MATERIAL  = false;  // true = neon wireframe to guarantee visibility
-const ENABLE_WARP     = false;   // cheap chest/waist/hip hugging
-const ENABLE_ARM_MATCH= true;   // rotate jacket arm bones to avatar arms
-
-/* ===================== RENDERER / SCENE ===================== */
-const canvas = document.getElementById('c');
+/* =========================
+   Renderer / Scene / Camera
+   ========================= */
+const canvas   = document.getElementById('c');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.shadowMap.enabled = true;
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x111111);
 
-const camera = new THREE.PerspectiveCamera(32, window.innerWidth / window.innerHeight, 0.1, 100);
-camera.position.set(0, 1.6, 3.2);
+const camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.01, 500);
+camera.position.set(0, 1.6, 3);
 
 const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 1.4, 0);
+controls.target.set(0, 1.0, 0);
 controls.enableDamping = true;
-controls.minDistance = 0.8;
-controls.maxDistance = 7;
+controls.minDistance = 0.3;
+controls.maxDistance = 50;
+camera.lookAt(controls.target);
 
-scene.add(new THREE.HemisphereLight(0xffffff, 0x404040, 1.2));
-const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-dl.position.set(3, 6, 4);
-scene.add(dl);
+/* =========================
+   Lighting & Ground
+   ========================= */
+scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const hemi = new THREE.HemisphereLight(0xffffff, 0x404040, 0.7);
+hemi.position.set(0, 1, 0);
+scene.add(hemi);
 
-/* ============================ HELPERS ====================== */
-const loader = new GLTFLoader();
-const boxOf = (o)=> new THREE.Box3().setFromObject(o);
-const worldPos = (o)=> { const v=new THREE.Vector3(); o.getWorldPosition(v); return v; };
-const worldQuat= (o)=> { const q=new THREE.Quaternion(); o.getWorldQuaternion(q); return q; };
+const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+sun.position.set(2.5, 6, 3);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+scene.add(sun);
 
-function centerAtOrigin(o){
-  const b = boxOf(o);
-  const c = b.getCenter(new THREE.Vector3());
-  o.position.sub(c);
-}
-function fitToHeight(o, targetH){
-  const b = boxOf(o);
-  const h = Math.max(1e-6, b.max.y - b.min.y);
-  o.scale.multiplyScalar(targetH / h);
-}
-function findBone(root, names=["Neck","UpperChest","Chest","Spine2","Spine1"]){
-  let found=null;
-  root.traverse(o=>{
-    if(o.isBone){
-      const n=(o.name||"").toLowerCase();
-      if(names.some(s=>n.includes(s.toLowerCase()))) found=o;
-    }
-  });
-  return found;
-}
-function tryShoulderWidth(root){
-  let L=null,R=null;
-  root.traverse(o=>{
-    if(!o.isBone) return;
-    const n=(o.name||"").toLowerCase();
-    if(!L && (n.includes('leftshoulder')||n==='l_shoulder'||n.includes('l_shoulder'))) L=o;
-    if(!R && (n.includes('rightshoulder')||n==='r_shoulder'||n.includes('r_shoulder'))) R=o;
-  });
-  return (L&&R) ? worldPos(L).distanceTo(worldPos(R)) : null;
-}
-async function loadJSON(url){ const r=await fetch(url); if(!r.ok) throw new Error(`Failed to load ${url}`); return r.json(); }
+const ground = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 20),
+  new THREE.MeshStandardMaterial({ color: 0x222222, roughness: 1 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+scene.add(new THREE.GridHelper(20, 40, 0x444444, 0x222222));
 
-/* ====================== REGION WARP (FAST) ================= */
-function installRegionWarpOnMesh(mesh){
-  if (!ENABLE_WARP || !mesh.isMesh || !mesh.material) return null;
+/* =========================
+   UI Elements
+   ========================= */
+const infoEl  = document.getElementById('info');
+const measureReadout = document.getElementById('measureReadout');
+const errEl   = document.getElementById('error');
+const reload  = document.getElementById('reload');
+const picker  = document.getElementById('fileInput');
 
-  const mat = mesh.material;
-  mat.side = THREE.DoubleSide;
-  mat.depthTest = true;
-  mat.metalness ??= 0.0;
-  mat.roughness ??= 0.8;
-
-  mesh.geometry?.computeBoundingBox?.();
-  const bb = mesh.geometry?.boundingBox;
-  const uniforms = {
-    uChest:{value:1.0}, uWaist:{value:1.0}, uHip:{value:1.0},
-    uYMin:{value:bb?bb.min.y:0}, uYMax:{value:bb?bb.max.y:1},
-    uPush:{value:0.002}
-  };
-
-  mat.onBeforeCompile = (shader)=>{
-    Object.assign(shader.uniforms, uniforms);
-    shader.vertexShader = shader.vertexShader.replace(
-      '#include <skinning_vertex>',
-      `
-      #include <skinning_vertex>
-      float yMin=uYMin, yMax=uYMax;
-      float t = clamp((transformed.y - yMin) / max(1e-5,(yMax - yMin)), 0.0, 1.0);
-      float wHip   = smoothstep(0.00, 0.25, 1.0 - t);
-      float wWaist = smoothstep(0.25, 0.55, 1.0 - abs(t-0.45)*2.0);
-      float wChest = smoothstep(0.60, 0.98, t);
-      float denom = max(1e-4, wHip+wWaist+wChest);
-      float sXZ = (wHip*uHip + wWaist*uWaist + wChest*uChest) / denom;
-      transformed.xz *= sXZ;
-      transformed += normal * uPush;
-      `
-    );
-    mat.userData._shaderUniforms = uniforms;
-  };
-  mat.needsUpdate = true;
-
-  const clamp = (x)=> Math.max(0.85, Math.min(1.25, x));
-  return {
-    setBands:(ch,wa,hi)=>{ uniforms.uChest.value=clamp(ch); uniforms.uWaist.value=clamp(wa); uniforms.uHip.value=clamp(hi); },
-    setRange:(mn,mx)=>{ uniforms.uYMin.value=mn; uniforms.uYMax.value=mx; }
-  };
-}
-
-/* ============================ STATE ======================= */
-let avatar, avatarNeck;
-let jacket, jacketOriginalScale = new THREE.Vector3(1,1,1);
-let warpCtrls = [];
-let garmentSpec = null;
-let avatarMeasures = null;
-
-/* ========================== LOADERS ======================= */
-async function loadAvatar(){
-  const gl = await loader.loadAsync('/avatar.glb');
-  avatar = gl.scene;
-  avatar.rotation.y = AVATAR_ROT_Y;
-  centerAtOrigin(avatar);
-  fitToHeight(avatar, AVATAR_HEIGHT_M);
-  scene.add(avatar);
-  avatarNeck = findBone(avatar) || avatar;
-}
-
-async function loadJacket(){
-  const gl = await loader.loadAsync('/jacket.glb');
-  jacket = gl.scene;
-
-  centerAtOrigin(jacket);
-  fitToHeight(jacket, AVATAR_HEIGHT_M);  // visible baseline
-  jacket.rotation.y = JACKET_ROT_Y;
-  jacket.position.set(0, 0, 0);
-
-  if (DEBUG_MATERIAL) {
-    const m = new THREE.MeshBasicMaterial({ color: 0x44ff88, wireframe: true, transparent: true, opacity: 0.95, depthTest: false });
-    jacket.traverse(o=>{ if(o.isMesh){ o.material=m; o.frustumCulled=false; o.renderOrder=2; }});
-  } else {
-    jacket.traverse(o=>{
-      if(o.isMesh){
-        o.material.side = THREE.DoubleSide;
-        o.material.transparent = false;
-        o.material.alphaTest = 0.0;
-        o.material.depthTest = true;
-        o.frustumCulled = false;
-        o.renderOrder = 2;
-      }
-    });
-  }
-
-  // install warp on all meshes (safe if ENABLE_WARP=false)
-  warpCtrls = [];
-  jacket.traverse(o=>{
-    if (o.isMesh) {
-      const ctrl = installRegionWarpOnMesh(o);
-      if (ctrl) warpCtrls.push(ctrl);
-    }
-  });
-
-  jacketOriginalScale.copy(jacket.scale);
-  scene.add(jacket);
-}
-
-/* ================== ALIGNMENT + SCALING =================== */
-function alignAndScaleJacket(){
-  if (!avatar || !jacket) return;
-
-  // reset (avoid cumulative transforms)
-  jacket.scale.copy(jacketOriginalScale);
-  jacket.rotation.y = AVATAR_ROT_Y + JACKET_ROT_Y;
-  jacket.position.set(0, 0, 0);
-
-  // 1) length to torso
-  const avatarH = Math.max(1e-6, (boxOf(avatar).max.y - boxOf(avatar).min.y));
-  const desiredLen = avatarH * TORSO_FRACTION;
-
-  const jBox0 = boxOf(jacket);
-  const jH0 = Math.max(1e-6, jBox0.max.y - jBox0.min.y);
-  let sLen = THREE.MathUtils.clamp(desiredLen / jH0, 0.2, 3.0);
-  jacket.scale.multiplyScalar(sLen);
-
-  // 2) shoulder width
-  const shoulder = tryShoulderWidth(avatar);
-  const jBox1 = boxOf(jacket);
-  const jW1 = Math.max(1e-6, jBox1.max.x - jBox1.min.x);
-  if (shoulder) {
-    let sW = THREE.MathUtils.clamp((shoulder * SHOULDER_EASE) / jW1, 0.2, 3.0);
-    jacket.scale.multiplyScalar(sW);
-  }
-
-  // 3) snap collar to neck
-  const neckY = worldPos(avatarNeck).y + JACKET_Y_NUDGE;
-  const jBox2 = boxOf(jacket);
-  jacket.position.y += (neckY - jBox2.max.y);
-
-  // 4) update warp vertical range
-  const jBox3 = boxOf(jacket);
-  warpCtrls.forEach(c => c.setRange(jBox3.min.y, jBox3.max.y));
-
-  // 5) sleeve posing
-  if (ENABLE_ARM_MATCH) tryMatchArmsToAvatar();
-}
-
-/* ========================= ARM MATCHING ==================== */
-function findArmChain(root, side /* 'L' | 'R' */) {
-  const s = side.toLowerCase();
-  const shoulderNames = s === 'l'
-    ? ['leftshoulder','l_shoulder','shoulder_l','shoulder.l','shoulder_left']
-    : ['rightshoulder','r_shoulder','shoulder_r','shoulder.r','shoulder_right'];
-  const upperNames = s === 'l'
-    ? ['leftupperarm','upperarm_l','upperarm.l','leftarm','arm_l','arm.l','mixamorigleftarm']
-    : ['rightupperarm','upperarm_r','upperarm.r','rightarm','arm_r','arm.r','mixamorigrightarm'];
-  const foreNames = s === 'l'
-    ? ['leftforearm','forearm_l','forearm.l','lowerarm_l','lowerarm.l','mixamorigleftforearm']
-    : ['rightforearm','forearm_r','forearm.r','lowerarm_r','lowerarm.r','mixamorigrightforearm'];
-  const handNames = s === 'l'
-    ? ['lefthand','hand_l','hand.l','l_hand','mixamoriglefthand']
-    : ['righthand','hand_r','hand.r','r_hand','mixamorigrighthand'];
-
-  const findBy = (names)=>{
-    let b=null; root.traverse(o=>{ if(o.isBone && !b){ const n=(o.name||'').toLowerCase(); if(names.some(k=>n.includes(k))) b=o; }});
-    return b;
-  };
-  return { shoulder: findBy(shoulderNames), upper: findBy(upperNames), fore: findBy(foreNames), hand: findBy(handNames) };
-}
-
-function alignBoneDirectionWorld(jBone, fromWorld, toWorld) {
-  if (!jBone) return;
-  const start = new THREE.Vector3(); jBone.getWorldPosition(start);
-  const curDir = new THREE.Vector3().copy(toWorld).sub(start).normalize();
-  const tgtDir = new THREE.Vector3().copy(toWorld).sub(fromWorld).normalize();
-  if (curDir.lengthSq() < 1e-6 || tgtDir.lengthSq() < 1e-6) return;
-
-  const deltaWorld = new THREE.Quaternion().setFromUnitVectors(curDir, tgtDir);
-  const parentWorld = jBone.parent ? worldQuat(jBone.parent) : new THREE.Quaternion();
-  const newWorld = deltaWorld.multiply(worldQuat(jBone));
-  const newLocal = parentWorld.clone().invert().multiply(newWorld);
-
-  jBone.quaternion.copy(newLocal);
-  jBone.updateMatrixWorld(true);
-}
-
-function tryMatchSingleArm(side) {
-  const a = findArmChain(avatar, side);
-  const j = findArmChain(jacket, side);
-  if (!a.upper || !a.fore || !a.hand || !j.upper || !j.fore) return;
-
-  const aShoulderP = worldPos(a.shoulder ?? a.upper.parent ?? a.upper);
-  const aElbowP    = worldPos(a.fore);
-  const aWristP    = worldPos(a.hand);
-
-  alignBoneDirectionWorld(j.upper, aShoulderP, aElbowP);
-  alignBoneDirectionWorld(j.fore,  aElbowP,    aWristP);
-}
-
-function tryMatchArmsToAvatar() {
-  tryMatchSingleArm('L');
-  tryMatchSingleArm('R');
-}
-
-/* ========================= SIZING / UI ===================== */
-const ui = {
-  sizeSelect: document.getElementById('sizeSelect'),
-  recommendBtn: document.getElementById('recommendBtn'),
-  info: document.getElementById('info')
+const UI = {
+  shirtChest:  document.getElementById('shirtChest'),
+  shirtWaist:  document.getElementById('shirtWaist'),
+  shirtLen:    document.getElementById('shirtLen'),
+  sleeveLen:   document.getElementById('sleeveLen'),
+  sleeveCirc:  document.getElementById('sleeveCirc'),
+  tightness:   document.getElementById('tightness'),
+  textureFile: document.getElementById('textureFile'),
 };
 
-function sizeRowToFlat(row){
-  const chestFlat = row.chestFlat_cm ?? (row.chest_cm ? row.chest_cm/2 : undefined);
-  const waistFlat = row.waist_cm ? row.waist_cm/2 : undefined;
-  const hipFlat   = row.hip_cm   ? row.hip_cm/2   : undefined;
-  return { chestFlat, waistFlat, hipFlat };
-}
-function pickSizeByChest(avatarChest_cm, spec){
-  const sizes = Object.keys(spec.sizes||{});
-  if(!sizes.length) return null;
-  const target = avatarChest_cm/2;
-  let best=sizes[0], diff=Infinity;
-  for(const s of sizes){
-    const { chestFlat } = sizeRowToFlat(spec.sizes[s]);
-    if (chestFlat===undefined) continue;
-    const d = Math.abs(chestFlat - target);
-    if (d<diff){ diff=d; best=s; }
+function showError(msg) { errEl.style.display = 'block'; errEl.textContent = msg; }
+function clearError()   { errEl.style.display = 'none'; errEl.textContent = ''; }
+
+/* =========================
+   GLB Loader (with Draco)
+   ========================= */
+const loader = new GLTFLoader();
+const draco = new DRACOLoader();
+draco.setDecoderConfig({ type: 'js' });
+draco.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+loader.setDRACOLoader(draco);
+
+let avatarRoot = null;
+let shirt = null;
+let lastObjectURL = null;
+
+/* =========================
+   Load GLB, estimate measures, add shirt
+   ========================= */
+async function loadGLB(url, onDone) {
+  clearError();
+  infoEl.textContent = `Loading ${url} ...`;
+
+  try {
+    const gltf = await loader.loadAsync(url);
+
+    if (avatarRoot) {
+      scene.remove(avatarRoot);
+      avatarRoot.traverse(o => {
+        if (o.isMesh) {
+          o.geometry?.dispose?.();
+          if (o.material?.map) o.material.map.dispose?.();
+          o.material?.dispose?.();
+        }
+      });
+      avatarRoot = null;
+    }
+
+    avatarRoot = gltf.scene;
+    avatarRoot.traverse((o) => {
+      if (o.isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+        if (o.material?.map) o.material.map.colorSpace = THREE.SRGBColorSpace;
+      }
+    });
+
+    // Place on ground & frame
+    centerOnGround(avatarRoot);
+    frameToObject(avatarRoot);
+    scene.add(avatarRoot);
+
+    // Estimate basic measures from bounding boxes around torso
+    const est = estimateAvatarMeasures(avatarRoot);
+    measureReadout.textContent =
+      `Estimated avatar → Chest ${est.chestCm}cm • Waist ${est.waistCm}cm • Shoulders ${est.shouldersCm}cm • TorsoY ${est.torsoY.toFixed(2)}m`;
+
+    // Prefill shirt sliders from avatar
+    UI.shirtChest.value = String(Math.round(est.chestCm * 1.03)); // tiny ease
+    UI.shirtWaist.value = String(Math.round(est.waistCm * 1.03));
+    // place shirt around mid torso
+    const yOffset = est.torsoY;
+
+    // Remove old shirt if any
+    if (shirt) { scene.remove(shirt); shirt = null; }
+
+    // Create shirt with current UI values
+    shirt = createTShirt({
+      chestCm: +UI.shirtChest.value,
+      waistCm: +UI.shirtWaist.value,
+      lengthCm: +UI.shirtLen.value,
+      sleeveLenCm: +UI.sleeveLen.value,
+      sleeveCircCm: +UI.sleeveCirc.value,
+      tightness: +UI.tightness.value,
+      yOffset,
+    });
+    scene.add(shirt);
+
+    infoEl.textContent = `Loaded ${url}`;
+  } catch (err) {
+    console.error('Failed to load GLB:', err);
+    showError(`Failed to load ${url}. ${err?.message ?? ''}`);
+  } finally {
+    onDone && onDone();
   }
-  return best;
-}
-function applyWarpBands(sizeLabel){
-  if (!ENABLE_WARP) return;
-  const row = garmentSpec?.sizes?.[sizeLabel]; if(!row) return;
-
-  const { chestFlat, waistFlat, hipFlat } = sizeRowToFlat(row);
-  const aC = (avatarMeasures?.chest_cm ?? 0)/2;
-  const aW = (avatarMeasures?.waist_cm ?? aC*0.85)/2;
-  const aH = (avatarMeasures?.hip_cm   ?? aC*0.95)/2;
-
-  const chestScale = ((chestFlat ?? aC) + DEFAULT_EASE_CM) / Math.max(1e-4, aC);
-  const waistScale = ((waistFlat ?? aW) + DEFAULT_EASE_CM) / Math.max(1e-4, aW);
-  const hipScale   = ((hipFlat   ?? aH) + DEFAULT_EASE_CM) / Math.max(1e-4, aH);
-
-  warpCtrls.forEach(c=>c.setBands(chestScale, waistScale, hipScale));
 }
 
-function buildSizeDropdown(){
-  ui.sizeSelect.innerHTML='';
-  Object.keys(garmentSpec?.sizes ?? {}).forEach(s=>{
-    const opt=document.createElement('option'); opt.value=s; opt.textContent=s;
-    ui.sizeSelect.appendChild(opt);
-  });
+/* =========================
+   Helpers: center & frame
+   ========================= */
+function centerOnGround(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  if (!isFiniteBox(box)) return;
+  const center = new THREE.Vector3();
+  box.getCenter(center);
+  obj.position.x -= center.x;
+  obj.position.z -= center.z;
+  obj.position.y -= box.min.y; // feet on ground
+}
+function frameToObject(obj) {
+  const box = new THREE.Box3().setFromObject(obj);
+  if (!isFiniteBox(box)) return;
+  const size = new THREE.Vector3(), center = new THREE.Vector3();
+  box.getSize(size); box.getCenter(center);
+  const height = Math.max(size.y, 0.001);
+  const distByH = height / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)));
+  const distByW = (size.x / 2) / Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5)) * camera.aspect;
+  const dist = 1.2 * Math.max(distByH, distByW);
+  controls.target.set(0, size.y * 0.5, 0);
+  camera.position.set(0, size.y * 0.5, dist);
+  camera.near = Math.max(0.01, dist * 0.01);
+  camera.far  = dist * 20.0;
+  camera.updateProjectionMatrix();
+  camera.lookAt(controls.target);
+}
+function isFiniteBox(box) {
+  return Number.isFinite(box.min.x) && Number.isFinite(box.max.x);
 }
 
-function wireUI(){
-  ui.recommendBtn?.addEventListener('click', ()=>{
-    const rec=pickSizeByChest(avatarMeasures?.chest_cm ?? 0, garmentSpec);
-    if(rec){ ui.sizeSelect.value=rec; ui.info.textContent=`Recommended: ${rec}`; applyWarpBands(rec); alignAndScaleJacket(); }
-  });
-  ui.sizeSelect?.addEventListener('change', ()=>{
-    const s=ui.sizeSelect.value;
-    applyWarpBands(s);
-    alignAndScaleJacket();
-    ui.info.textContent = `Size: ${s}`;
-  });
+/* =========================
+   Rough measurement estimator
+   ========================= */
+function estimateAvatarMeasures(root) {
+  // Use torso bounds (y: 35%..78% of model height) to avoid legs/head
+  const full = new THREE.Box3().setFromObject(root);
+  const size = new THREE.Vector3(); full.getSize(size);
+  const minY = full.min.y + size.y * 0.35;
+  const maxY = full.min.y + size.y * 0.78;
+
+  // Sample points by cloning, applying clipping-by-Y, and measuring XZ extents.
+  // Cheap approach: just use full box XZ as chest/waist proxy, scaled.
+  const chestCirc = (full.getSize(new THREE.Vector3()).x * Math.PI) * 0.90 * 100; // cm-ish
+  const waistCirc = chestCirc * 0.92; // crude proportion fallback
+
+  const shoulders = full.getSize(new THREE.Vector3()).x * 0.9 * 100; // cm-ish
+  const torsoY = (minY + (maxY - minY) * 0.25); // where shirt top sits visually
+
+  return {
+    chestCm: Math.max(70, Math.round(chestCirc)),
+    waistCm: Math.max(60, Math.round(waistCirc)),
+    shouldersCm: Math.max(35, Math.round(shoulders)),
+    torsoY,
+  };
 }
 
-/* ============================ BOOT ========================= */
-function onResize(){ camera.aspect=window.innerWidth/window.innerHeight; camera.updateProjectionMatrix(); renderer.setSize(window.innerWidth, window.innerHeight); }
-window.addEventListener('resize', onResize);
-
-async function init(){
-  // Load JSON first (ok if missing—UI will just be empty)
-  [garmentSpec, avatarMeasures] = await Promise.all([
-    loadJSON('/jacket-measures.json').catch(()=>({sizes:{}})),
-    loadJSON('/avatar-measures.json').catch(()=>({}))
-  ]);
-  buildSizeDropdown();
-
-  await loadAvatar();
-  await loadJacket();
-
-  // Initial alignment
-  alignAndScaleJacket();
-
-  // Initial recommendation + warp
-  const rec = pickSizeByChest(avatarMeasures?.chest_cm ?? 0, garmentSpec) || ui.sizeSelect.options[0]?.value;
-  if (rec) {
-    ui.sizeSelect.value = rec;
-    ui.info.textContent = `Recommended: ${rec}`;
-    applyWarpBands(rec);
-    alignAndScaleJacket();
-  }
-
-  wireUI();
-
-  renderer.setAnimationLoop(()=>{ controls.update(); renderer.render(scene, camera); });
-}
-
-init().catch(e=>{
-  console.error(e);
-  ui.info && (ui.info.textContent = 'Error: ' + (e?.message || e));
+/* =========================
+   UI events
+   ========================= */
+reload.addEventListener('click', () => loadGLB('/avatar.glb'));
+picker.addEventListener('change', (e) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  loadGLB(url, () => URL.revokeObjectURL(url));
 });
 
+function readShirtParams() {
+  return {
+    chestCm:      +UI.shirtChest.value,
+    waistCm:      +UI.shirtWaist.value,
+    lengthCm:     +UI.shirtLen.value,
+    sleeveLenCm:  +UI.sleeveLen.value,
+    sleeveCircCm: +UI.sleeveCirc.value,
+    tightness:    +UI.tightness.value,
+  };
+}
+
+['shirtChest','shirtWaist','shirtLen','sleeveLen','sleeveCirc','tightness'].forEach(id => {
+  UI[id].addEventListener('input', () => {
+    if (!shirt) return;
+    shirt.userData.update(readShirtParams());
+  });
+});
+
+UI.textureFile.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  if (!file || !shirt) return;
+  if (lastObjectURL) URL.revokeObjectURL(lastObjectURL);
+  const url = URL.createObjectURL(file);
+  lastObjectURL = url;
+  try {
+    const tex = await loadTextureFromURL(url, { mirrored: true });
+    shirt.userData.update({ texture: tex });
+  } catch (err) {
+    console.error('Texture load failed:', err);
+  }
+});
+
+/* =========================
+   Start
+   ========================= */
+loadGLB('/avatar.glb');
+
+/* =========================
+   Loop / Resize
+   ========================= */
+function onResize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+window.addEventListener('resize', onResize);
+
+renderer.setAnimationLoop(() => {
+  controls.update();
+  renderer.render(scene, camera);
+});

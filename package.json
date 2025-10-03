@@ -1,19 +1,16 @@
 {
   "name": "fit-passport-mvp",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "vite build",
+    "preview": "vite preview --port 5174"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
-    "three": "^0.180.0"
+    "three": "^0.160.1"
   },
   "devDependencies": {
-    "vite": "^6.3.6"
+    "vite": "^5.0.0"
   }
 }
