@@ -1,0 +1,12 @@
+{
+  "product_id": "sku_ABC",
+  "brand_id": "moncler",
+  "category": "tshirt",
+  "measurement_system": "cm",
+  "sizes": [
+    { "size": "S",  "chest_cm": 96,  "waist_cm": 92,  "length_cm": 66, "sleeve_len_cm": 20, "ease_cm": 4 },
+    { "size": "M",  "chest_cm": 102, "waist_cm": 98,  "length_cm": 68, "sleeve_len_cm": 21, "ease_cm": 5 },
+    { "size": "L",  "chest_cm": 108, "waist_cm": 104, "length_cm": 70, "sleeve_len_cm": 22, "ease_cm": 6 }
+  ],
+  "texture_front_url": "https://images.unsplash.com/photo-1520975682031-c93dfde6f3ee?w=1200&q=80"
+}

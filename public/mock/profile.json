@@ -1,0 +1,10 @@
+{
+  "user_id": "usr_demo",
+  "avatar_url": "/avatar.glb",
+  "measurements": {
+    "height_cm": 178,
+    "chest_cm": 100,
+    "waist_cm": 84,
+    "shoulders_cm": 46
+  }
+}
