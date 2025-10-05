@@ -6,6 +6,7 @@ import { ReactNode, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { Avatar } from './Avatar';
 import { TShirt } from './TShirt';
+import { ReferencePoints } from './ReferencePoints';
 import { BodyMeasurements } from '@/types/measurements';
 import { GarmentMeasurements } from '@/lib/3d/garmentMeasurements';
 
@@ -71,6 +72,9 @@ export function Scene({ children, measurements, avatarUrl, garmentMeasurements }
             bodyMeasurements={measurements}
           />
         )}
+
+        {/* Anatomical reference points visualization */}
+        <ReferencePoints avatarMesh={avatarMesh} />
 
         {/* Orbital controls */}
         <OrbitControls

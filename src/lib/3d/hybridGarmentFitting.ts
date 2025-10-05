@@ -135,10 +135,21 @@ export function createHybridTShirt(
   const neckTopY = minY + bodyHeight * 0.92;  // Neck opening
   const neckRadius = 0.08;
 
-  console.log('[HybridGarment] Body dimensions:', {
+  // SLEEVE LENGTH HANDLING
+  // Get sleeve length from garment measurements or use default (20cm = short sleeve)
+  const sleeveLength = garmentMeasurements?.sleeveLength ?? 20; // cm
+  const sleeveLengthMeters = sleeveLength / 100; // Convert to meters
+  const shoulderY = minY + bodyHeight * 0.82; // Shoulder level
+  const sleeveEndY = shoulderY - sleeveLengthMeters; // Where sleeve ends
+
+  console.log('[HybridGarment] Body & Sleeve dimensions:', {
     height: bodyHeight.toFixed(2),
     width: bodyWidth.toFixed(2),
     shirtRegion: `${bottomY.toFixed(2)} to ${topY.toFixed(2)}`,
+    shoulderY: shoulderY.toFixed(2),
+    sleeveLength: `${sleeveLength}cm`,
+    sleeveEndY: sleeveEndY.toFixed(2),
+    torsoWidth: (bodyWidth * 0.3).toFixed(2),
   });
 
   // Track vertices in shirt region
@@ -154,10 +165,33 @@ export function createHybridTShirt(
     const distFromCenter = Math.sqrt(tempVertex.x * tempVertex.x + tempVertex.z * tempVertex.z);
     const isNeck = tempVertex.y >= neckTopY && distFromCenter < neckRadius;
 
-    if (isInYRange && !isNeck) {
+    // CRITICAL FIX: Proper sleeve cutoff logic
+    // Arms extend horizontally from shoulders in T-pose
+    // Identify arm vertices: at shoulder height (70-85% of body) AND far from body center
+    const normalizedY = (tempVertex.y - minY) / bodyHeight;
+    const isAtShoulderHeight = normalizedY >= 0.70 && normalizedY <= 0.90;
+    const distanceFromBodyCenter = Math.abs(tempVertex.x); // Horizontal distance from center
+
+    // Torso width at shoulders is roughly 1/4 of body width
+    // Arms extend beyond that point
+    const torsoHalfWidth = bodyWidth * 0.15; // Torso is ~30% of total width
+    const isOnArm = isAtShoulderHeight && distanceFromBodyCenter > torsoHalfWidth;
+
+    // Check if this arm vertex is below the sleeve end
+    const isBelowSleeveEnd = tempVertex.y < sleeveEndY;
+    const isSleeveCutoff = isOnArm && isBelowSleeveEnd;
+
+    if (isInYRange && !isNeck && !isSleeveCutoff) {
       vertexInRegion[i] = true;
     }
   }
+
+  // Count vertices removed by sleeve cutoff for debugging
+  const totalVerticesInRange = vertexInRegion.filter(v => v).length;
+  console.log('[HybridGarment] Sleeve cutoff applied:', {
+    totalVerticesKept: totalVerticesInRange,
+    totalVertices: oldPositions.count,
+  });
 
   // Build new vertices with GARMENT-LIKE EXPANSION
   const newPositions: number[] = [];
