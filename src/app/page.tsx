@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { Scene } from '@/components/3d/Scene';
 import { MeasurementForm } from '@/components/ui/MeasurementForm';
 import { MeasurementProvider } from '@/contexts/MeasurementContext';
