@@ -20,6 +20,7 @@ export default function Home(): JSX.Element {
   const [selectedGarmentType, setSelectedGarmentType] = useState<GarmentType>('hm_basic_tshirt');
   const [selectedSize, setSelectedSize] = useState<GarmentSize>('M');
   const [garmentMeasurements, setGarmentMeasurements] = useState<GarmentMeasurements | null>(null);
+  const [showGarment, setShowGarment] = useState(true);
 
   const {
     avatarUrl,
@@ -63,6 +64,15 @@ export default function Home(): JSX.Element {
     setSelectedSize(size);
     const measurements = EXAMPLE_SIZE_CHARTS[type][size];
     setGarmentMeasurements(measurements);
+    setShowGarment(true);
+  };
+
+  const handleRemoveGarment = () => {
+    setShowGarment(false);
+  };
+
+  const handleAddGarment = () => {
+    setShowGarment(true);
   };
 
   return (
@@ -80,7 +90,7 @@ export default function Home(): JSX.Element {
           <Scene
             measurements={measurements}
             avatarUrl={avatarUrl}
-            garmentMeasurements={garmentMeasurements}
+            garmentMeasurements={showGarment ? garmentMeasurements : null}
           />
 
           {/* Toggle Form Button */}
@@ -162,7 +172,24 @@ export default function Home(): JSX.Element {
           {/* Garment Selection Panel */}
           {measurements && !showForm && !isLoading && (
             <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 bg-white p-6 rounded-lg shadow-xl max-w-4xl">
-              <h3 className="font-bold text-gray-800 mb-4 text-center">Select Garment Type & Size</h3>
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="font-bold text-gray-800 text-center flex-1">Select Garment Type & Size</h3>
+                {showGarment ? (
+                  <button
+                    onClick={handleRemoveGarment}
+                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm font-medium"
+                  >
+                    Remove Garment
+                  </button>
+                ) : (
+                  <button
+                    onClick={handleAddGarment}
+                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm font-medium"
+                  >
+                    Show Garment
+                  </button>
+                )}
+              </div>
 
               {/* Garment Type Selection */}
               <div className="mb-4">
