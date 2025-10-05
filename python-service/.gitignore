@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# SMPL model files (licensed, don't commit)
+models/
+*.pkl
+*.npz
+
+# Generated files
+*.gltf
+*.glb
+output/
+cache/
+
+# Training data
+training_data/
+regression_model.pkl
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
