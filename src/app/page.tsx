@@ -68,11 +68,15 @@ export default function Home(): JSX.Element {
   };
 
   const handleRemoveGarment = () => {
+    console.log('[page.tsx] Remove Garment clicked');
     setShowGarment(false);
+    console.log('[page.tsx] showGarment set to false');
   };
 
   const handleAddGarment = () => {
+    console.log('[page.tsx] Add Garment clicked');
     setShowGarment(true);
+    console.log('[page.tsx] showGarment set to true');
   };
 
   return (
@@ -90,7 +94,15 @@ export default function Home(): JSX.Element {
           <Scene
             measurements={measurements}
             avatarUrl={avatarUrl}
-            garmentMeasurements={showGarment ? garmentMeasurements : null}
+            garmentMeasurements={(() => {
+              const result = showGarment ? garmentMeasurements : null;
+              console.log('[page.tsx] Passing garmentMeasurements to Scene:', {
+                showGarment,
+                garmentMeasurements,
+                result
+              });
+              return result;
+            })()}
           />
 
           {/* Toggle Form Button */}

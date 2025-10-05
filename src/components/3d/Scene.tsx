@@ -20,10 +20,20 @@ interface SceneProps {
 export function Scene({ children, measurements, avatarUrl, garmentMeasurements }: SceneProps): JSX.Element {
   const [avatarMesh, setAvatarMesh] = useState<THREE.Mesh | null>(null);
 
+  console.log('[Scene.tsx] Received props:', {
+    measurements: measurements ? 'exists' : 'null',
+    avatarUrl: avatarUrl ? 'exists' : 'null',
+    garmentMeasurements: garmentMeasurements ? 'exists' : 'null'
+  });
+
   const handleMeshLoaded = useCallback((mesh: THREE.Mesh | null) => {
     console.log('[Scene] Avatar mesh reference updated:', mesh ? 'loaded' : 'cleared');
     setAvatarMesh(mesh);
   }, []);
+
+  const shouldShowTShirt = measurements && garmentMeasurements;
+  console.log('[Scene.tsx] Should show T-Shirt:', shouldShowTShirt);
+
   return (
     <div className="w-full h-screen">
       <Canvas
@@ -60,17 +70,24 @@ export function Scene({ children, measurements, avatarUrl, garmentMeasurements }
         {/* Avatar mannequin (dynamic SMPL or static fallback) */}
         <Avatar avatarUrl={avatarUrl} onMeshLoaded={handleMeshLoaded} />
 
-        {/* T-Shirt garment - only show when measurements exist */}
-        {measurements && (
-          <TShirt
-            chest={measurements.chest}
-            waist={measurements.waist}
-            shoulderWidth={measurements.shoulderWidth}
-            torsoLength={65}
-            avatarMesh={avatarMesh}
-            garmentMeasurements={garmentMeasurements}
-            bodyMeasurements={measurements}
-          />
+        {/* T-Shirt garment - only show when measurements exist and garment is visible */}
+        {shouldShowTShirt ? (
+          <>
+            {console.log('[Scene.tsx] Rendering TShirt component')}
+            <TShirt
+              chest={measurements.chest}
+              waist={measurements.waist}
+              shoulderWidth={measurements.shoulderWidth}
+              torsoLength={65}
+              avatarMesh={avatarMesh}
+              garmentMeasurements={garmentMeasurements}
+              bodyMeasurements={measurements}
+            />
+          </>
+        ) : (
+          <>
+            {console.log('[Scene.tsx] NOT rendering TShirt component')}
+          </>
         )}
 
         {/* Anatomical reference points visualization */}
